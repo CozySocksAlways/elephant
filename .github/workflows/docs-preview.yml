@@ -1,0 +1,60 @@
+# Fork-only workflow: build the Sphinx docs of a given branch (notebooks not
+# executed) and publish them to this fork's GitHub Pages for previewing.
+# Requires: Settings -> Pages -> Source: "GitHub Actions".
+# Run: gh workflow run docs-preview.yml -R <owner>/elephant -f ref=<branch>
+name: docs-preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to build"
+        required: true
+        default: "enh/contributer_guide_update"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # never run on the upstream repository
+    if: github.repository_owner != 'NeuralEnsemble'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          activate-environment: true
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      - name: Install elephant with docs dependencies
+        run: uv pip install -e ".[docs]"
+
+      - name: Build docs (notebooks not executed)
+        run: sphinx-build -b html doc doc/_build/html -D nbsphinx_execute=never
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: doc/_build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
